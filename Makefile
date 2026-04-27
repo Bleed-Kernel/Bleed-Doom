@@ -8,7 +8,7 @@ LIB_DIR     := sysroot/lib
 CRT0        := $(LIB_DIR)/start.o
 LIBC        := $(LIB_DIR)/blibc.a
 
-BLIBC_REPO  := https://codeberg.org/Bleed-Kernel/blibc.git
+BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
 INCLUDES    := -Iinclude -Isysroot/include -Isysroot/libc
