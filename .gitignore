@@ -11,6 +11,8 @@ Release/
 Build/
 doomgeneric.map
 
+.vscode/settings.json
+
 sysroot/
 external/
 
