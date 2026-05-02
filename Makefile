@@ -25,7 +25,6 @@ CFLAGS := \
 	-nostdinc \
 	-no-pie \
 	-msse4.2 \
-	-Wunused-command-line-argument \
 	$(INCLUDES)
 
 LDFLAGS := \
