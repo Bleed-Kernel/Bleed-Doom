@@ -2,7 +2,7 @@ TARGET      := doom
 BIN_DIR     := bin
 OBJ_DIR     := $(BIN_DIR)/obj/doom
 
-CC 			:= gcc
+CC 			?= x86_64-elf-gcc
 
 LIB_DIR     := sysroot/lib
 CRT0        := $(LIB_DIR)/start.o
@@ -24,7 +24,6 @@ CFLAGS := \
 	-nostdlib \
 	-nostdinc \
 	-no-pie \
-	-msse4.2 \
 	$(INCLUDES)
 
 LDFLAGS := \
