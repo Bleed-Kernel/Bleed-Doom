@@ -2,7 +2,8 @@ TARGET      := doom
 BIN_DIR     := bin
 OBJ_DIR     := $(BIN_DIR)/obj/doom
 
-CC 			:= gcc
+# Prefer the x86_64-elf cross compiler when installed (needed on macOS, where gcc is clang)
+CC 			:= $(shell command -v x86_64-elf-gcc >/dev/null 2>&1 && echo x86_64-elf-gcc || echo gcc)
 
 LIB_DIR     := sysroot/lib
 CRT0        := $(LIB_DIR)/start.o
@@ -11,7 +12,7 @@ LIBC        := $(LIB_DIR)/blibc.a
 BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
-INCLUDES    := -Iinclude -Isysroot/include -Isysroot/libc
+INCLUDES    := -Isysroot/include -Isysroot/include/bleed
 
 CFLAGS := \
 	-std=gnu17 \

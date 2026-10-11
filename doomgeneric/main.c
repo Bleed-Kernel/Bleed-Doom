@@ -1,6 +1,6 @@
 #include "doomgeneric.h"
 
-#include <fs/file.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdbool.h>
 

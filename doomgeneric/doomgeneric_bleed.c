@@ -4,13 +4,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#include <fs/file.h>
-#include <devices/keyboard.h>
-#include <syscalls/open.h>
-#include <syscalls/read.h>
-#include <syscalls/ioctl.h>
-#include <devices/hpet.h>
-#include <graphics/display.h>
+#include <fcntl.h>
+#include <keyboard.h>
+#include <syscalls.h>
+#include <hpet.h>
+#include <display.h>
 #include <string.h>
 #include <stdio.h>
 
