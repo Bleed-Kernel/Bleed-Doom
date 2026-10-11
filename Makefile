@@ -12,7 +12,13 @@ LIBC        := $(LIB_DIR)/blibc.a
 BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
-INCLUDES    := -Isysroot/include -Isysroot/include/bleed
+# the desktop, for the window library and its headers. a checkout next to this one by default
+CRIME_REPO  := https://github.com/Bleed-Kernel/Crime-Scene.git
+CRIME_DIR   ?= ../Crime-Scene
+LIBCRIME    := $(CRIME_DIR)/bin/libcrime.a
+
+# crime goes last so nothing of its can shadow a libc header
+INCLUDES    := -Isysroot/include -Isysroot/include/bleed -I$(CRIME_DIR)/include
 
 CFLAGS := \
 	-std=gnu17 \
@@ -51,14 +57,15 @@ DOOM_FILES := \
 DOOM_SRCS := $(addprefix doomgeneric/,$(DOOM_FILES))
 DOOM_OBJS := $(patsubst doomgeneric/%.c,$(OBJ_DIR)/%.o,$(DOOM_SRCS))
 
-all: blibc $(BIN_DIR)/$(TARGET)
+all: blibc crime $(BIN_DIR)/$(TARGET)
 
-$(BIN_DIR)/$(TARGET): $(CRT0) $(DOOM_OBJS)
+$(BIN_DIR)/$(TARGET): $(CRT0) $(DOOM_OBJS) $(LIBCRIME)
 	@mkdir -p $(BIN_DIR)
 	$(CC) $(LDFLAGS) \
 		-o $@ \
 		$(CRT0) \
 		$(DOOM_OBJS) \
+		$(LIBCRIME) \
 		-l:blibc.a
 
 $(OBJ_DIR)/%.o: doomgeneric/%.c
@@ -66,6 +73,18 @@ $(OBJ_DIR)/%.o: doomgeneric/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 blibc: $(LIBC)
+
+crime: $(LIBCRIME)
+
+$(DOOM_OBJS): | crime
+
+# built against the same blibc we use, not whatever its own makefile would go and fetch
+$(LIBCRIME):
+	@echo "[CRIME] Preparing the window library"
+	@if [ ! -d "$(CRIME_DIR)" ]; then \
+		git clone $(CRIME_REPO) $(CRIME_DIR); \
+	fi
+	$(MAKE) -C $(CRIME_DIR) bin/libcrime.a BLIBC_DIR=$(abspath $(BLIBC_DIR))
 
 $(LIBC):
 	@echo "[BLIBC] Preparing blibc"
@@ -85,4 +104,4 @@ clean:
 distclean:
 	rm -rf $(BIN_DIR) sysroot external
 
-.PHONY: all clean distclean blibc
+.PHONY: all clean distclean blibc crime

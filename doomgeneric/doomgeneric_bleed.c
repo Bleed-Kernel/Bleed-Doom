@@ -12,46 +12,36 @@
 #include <string.h>
 #include <stdio.h>
 
+// the crime-scene window library, this port only runs as a window on the desktop
+#include <crime/crime.h>
+#include <crime/sys.h>
+
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
 
-#define TTY_ECHO         (1 << 1)
-#define TTY_CANNONICAL   (1 << 2)
-#define TTY_NONBLOCK     (1 << 4)
+#define KEY_QUEUE_SIZE 64
 
-#define TTY_IOCTL_SET_FLAGS  0x5402
-#define TTY_FLAGS_DOOM (TTY_NONBLOCK)
+// if the pointer hasnt been heard from for this long it was off somewhere else, and
+// the jump back to wherever it came in again isnt the player turning
+#define MOUSE_STALE_FS (femtosecondsPerSecond / 4)
 
-#ifndef DG_HAS_MOUSE_HEADER
-typedef struct {
-    int16_t dx;
-    int16_t dy;
-    int8_t wheel;
-    uint8_t buttons;
-} mouse_event_t;
-#endif
-
-#ifndef MOUSE_BTN_LEFT
-#define MOUSE_BTN_LEFT   (1 << 0)
-#define MOUSE_BTN_RIGHT  (1 << 1)
-#define MOUSE_BTN_MIDDLE (1 << 2)
-#endif
-
-static uint32_t* fb0;
-static uint32_t fb_pitch_pixels;
-static struct fb_info fb_info_local;
-static int tty_fd = -1;
-static int mouse_fd = -1;
+static cs_window_t *win;
 static int hpet_fd = -2;
-static int fb_fd = -1;
 
-static keyboard_event_t key_event;
+static keyboard_event_t key_queue[KEY_QUEUE_SIZE];
+static int key_head = 0;
+static int key_count = 0;
+
+static int mouse_x = 0;
+static int mouse_y = 0;
+static int mouse_dx = 0;
+static int mouse_dy = 0;
+static int mouse_buttons = 0;
+static int mouse_pending = 0;
+static uint64_t mouse_last_fs = 0;
+
 static uint64_t start_fs = 0;
-static int mouse_debug_dx = 0;
-static int mouse_debug_dy = 0;
-static int mouse_debug_buttons = 0;
-static uint64_t mouse_debug_last_fs = 0;
 
 static uint64_t dg_now_fs(void)
 {
@@ -67,134 +57,6 @@ static uint64_t dg_now_fs(void)
     if (_read(hpet_fd, &now, sizeof(now)) == (long)sizeof(now))
         return now;
     return 0;
-}
-
-//crude font
-
-enum {
-    FONT_0 = 0,
-    FONT_1,
-    FONT_2,
-    FONT_3,
-    FONT_4,
-    FONT_5,
-    FONT_6,
-    FONT_7,
-    FONT_8,
-    FONT_9,
-    FONT_F,
-    FONT_P,
-    FONT_S,
-    FONT_COLON,
-    FONT_DOT,
-    FONT_MINUS,
-    FONT_M,
-    FONT_X,
-    FONT_Y,
-    FONT_B,
-    FONT_GLYPH_COUNT
-};
-
-static const uint8_t font8x8[FONT_GLYPH_COUNT][8] = {
-    {0x3C, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C},
-    {0x08, 0x18, 0x08, 0x08, 0x08, 0x08, 0x08, 0x1C},
-    {0x3C, 0x42, 0x02, 0x02, 0x3C, 0x40, 0x40, 0x7E},
-    {0x3C, 0x42, 0x02, 0x1C, 0x02, 0x02, 0x42, 0x3C},
-    {0x04, 0x0C, 0x14, 0x24, 0x44, 0x7E, 0x04, 0x04},
-    {0x7E, 0x40, 0x40, 0x7C, 0x02, 0x02, 0x42, 0x3C},
-    {0x3C, 0x40, 0x40, 0x7C, 0x42, 0x42, 0x42, 0x3C},
-    {0x7E, 0x02, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20},
-    {0x3C, 0x42, 0x42, 0x3C, 0x42, 0x42, 0x42, 0x3C},
-    {0x3C, 0x42, 0x42, 0x3E, 0x02, 0x02, 0x42, 0x3C},
-    {0x7E, 0x40, 0x40, 0x78, 0x40, 0x40, 0x40, 0x40},
-    {0x7C, 0x42, 0x42, 0x7C, 0x40, 0x40, 0x40, 0x40},
-    {0x3E, 0x40, 0x40, 0x3C, 0x02, 0x02, 0x02, 0x7C},
-    {0x00, 0x18, 0x18, 0x00, 0x00, 0x18, 0x18, 0x00},
-    {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00},
-    {0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00},
-    {0x42, 0x66, 0x5A, 0x42, 0x42, 0x42, 0x42, 0x42},
-    {0x42, 0x24, 0x18, 0x18, 0x18, 0x18, 0x24, 0x42},
-    {0x42, 0x24, 0x18, 0x18, 0x08, 0x08, 0x08, 0x08},
-    {0x7C, 0x42, 0x42, 0x7C, 0x42, 0x42, 0x42, 0x7C}
-};
-
-static int front_glyph_for_char(char ch) {
-    if (ch >= '0' && ch <= '9') return FONT_0 + (ch - '0');
-    if (ch == 'F') return FONT_F;
-    if (ch == 'P') return FONT_P;
-    if (ch == 'S') return FONT_S;
-    if (ch == ':') return FONT_COLON;
-    if (ch == '.') return FONT_DOT;
-    if (ch == '-') return FONT_MINUS;
-    if (ch == 'M') return FONT_M;
-    if (ch == 'X') return FONT_X;
-    if (ch == 'Y') return FONT_Y;
-    if (ch == 'B') return FONT_B;
-    return -1;
-}
-
-static void draw_front_glyph(int x, int y, int glyph, uint32_t color) {
-    if (glyph < 0 || glyph >= FONT_GLYPH_COUNT)
-        return;
-
-    for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-            if (font8x8[glyph][i] & (1 << (7 - j))) {
-                int tx = x + j;
-                int ty = y + i;
-                if (tx < DOOMGENERIC_RESX && ty < DOOMGENERIC_RESY) {
-                    DG_ScreenBuffer[ty * DOOMGENERIC_RESX + tx] = (pixel_t)color;
-                }
-            }
-        }
-    }
-}
-
-static void draw_front_text(int x, int y, const char *text, uint32_t color) {
-    int cx = x;
-    while (*text) {
-        int glyph = front_glyph_for_char(*text++);
-        if (glyph >= 0) {
-            draw_front_glyph(cx, y, glyph, color);
-        }
-        cx += 8;
-    }
-}
-
-static int draw_front_unsigned(int x, int y, uint32_t value, uint32_t color) {
-    char digits[10];
-    int count = 0;
-
-    if (value == 0) {
-        draw_front_glyph(x, y, FONT_0, color);
-        return 8;
-    }
-
-    while (value > 0 && count < (int)sizeof(digits)) {
-        digits[count++] = (char)('0' + (value % 10));
-        value /= 10;
-    }
-
-    for (int i = count - 1; i >= 0; i--) {
-        draw_front_glyph(x, y, FONT_0 + (digits[i] - '0'), color);
-        x += 8;
-    }
-
-    return count * 8;
-}
-
-static int draw_front_signed(int x, int y, int value, uint32_t color) {
-    int width = 0;
-
-    if (value < 0) {
-        draw_front_glyph(x, y, FONT_MINUS, color);
-        x += 8;
-        width += 8;
-        value = -value;
-    }
-
-    width += draw_front_unsigned(x, y, (uint32_t)value, color);
-    return width;
 }
 
 static unsigned char map_key(const keyboard_event_t* ev)
@@ -240,91 +102,70 @@ static unsigned char map_key(const keyboard_event_t* ev)
     return (unsigned char)ascii;
 }
 
+// take everything the desktop sent since last time. keys and mouse are kept until the game asks
+static void dg_pump_events(void)
+{
+    cs_event_t ev;
+
+    while (cs_event_wait(&ev, 0)) {
+        switch (ev.type)
+        {
+            case CS_EV_KEY:
+                if (key_count < KEY_QUEUE_SIZE) {
+                    keyboard_event_t *slot = &key_queue[(key_head + key_count++) % KEY_QUEUE_SIZE];
+                    slot->keycode = ev.keycode;
+                    slot->action  = ev.key_action;
+                    slot->keymod  = ev.keymod;
+                }
+                break;
+
+            // the desktop gives a position inside the window, the game wants how far it moved
+            case CS_EV_MOUSE: {
+                uint64_t now = dg_now_fs();
+                if (mouse_last_fs != 0 && (now - mouse_last_fs) < MOUSE_STALE_FS) {
+                    mouse_dx += ev.x - mouse_x;
+                    mouse_dy += ev.y - mouse_y;
+                }
+                mouse_x = ev.x;
+                mouse_y = ev.y;
+                mouse_buttons = (int)ev.buttons;
+                mouse_last_fs = now;
+                mouse_pending = 1;
+                break;
+            }
+
+            case CS_EV_CLOSE_REQUEST:
+                cs_window_close(win);
+                exit(0);
+                break;
+
+            // a resize needs nothing doing here, win is already the new size and the next frame fills it
+            default:
+                break;
+        }
+    }
+}
+
 void DG_Init(void)
 {
-    uint32_t flags = TTY_FLAGS_DOOM;
-    tty_fd = _open("/dev/tty0", O_RDWR);
-    if (tty_fd >= 0) _ioctl(tty_fd, TTY_IOCTL_SET_FLAGS, &flags);
-    _ioctl(0, TTY_IOCTL_SET_FLAGS, &flags);
-    mouse_fd = _open("/dev/mouse", O_RDONLY);
+    win = cs_window_open(DOOMGENERIC_RESX, DOOMGENERIC_RESY, "DOOM");
+    if (!win) {
+        printf("doom: this needs the crime-scene desktop, start that and run doom from a terminal in it\n");
+        exit(1);
+    }
 
-    fb_fd = _open("/dev/fb0", O_RDWR);
-    if (fb_fd < 0) { fb0 = NULL; return; }
-    if (_ioctl(fb_fd, FB_IOC_GET_INFO, &fb_info_local) < 0) { fb0 = NULL; return; }
-
-    fb0 = (uint32_t*)malloc(fb_info_local.height * fb_info_local.pitch);
-    fb_pitch_pixels = fb_info_local.pitch >> 2;
     start_fs = dg_now_fs();
-    
-    // Clear screen once to black
-    memset(fb0, 0, fb_info_local.height * fb_info_local.pitch);
 }
 
 void DG_DrawFrame(void)
 {
-    if (!fb0 || !DG_ScreenBuffer) return;
+    if (!win || !DG_ScreenBuffer) return;
 
-    // --- Rolling Average FPS ---
-    #define FPS_AVG_WINDOW 60
-    static uint64_t delta_buffer[FPS_AVG_WINDOW] = {0};
-    static int delta_idx = 0;
-    static uint64_t rolling_sum = 0;
-    static int sample_count = 0;
-    static uint64_t last_frame_fs = 0;
-    uint64_t current_fs_now = dg_now_fs();
-    uint32_t fps_scaled = 0;
+    dg_pump_events();
 
-    if (last_frame_fs != 0) {
-        uint64_t delta = current_fs_now - last_frame_fs;
-        rolling_sum -= delta_buffer[delta_idx];
-        delta_buffer[delta_idx] = delta;
-        rolling_sum += delta;
-        delta_idx = (delta_idx + 1) % FPS_AVG_WINDOW;
-        if (sample_count < FPS_AVG_WINDOW) sample_count++;
-        if (rolling_sum > 0) {
-            uint64_t avg_delta = rolling_sum / sample_count;
-            if (avg_delta > 0)
-                fps_scaled = (uint32_t)((femtosecondsPerSecond * 10) / avg_delta);
-        }
-    }
-    last_frame_fs = current_fs_now;
-
-    // UI Drawing
-    uint32_t fps_int = fps_scaled / 10;
-    uint32_t color = 0xFFFFFF;
-    draw_front_glyph(5, 5, FONT_F, color);
-    draw_front_glyph(13, 5, FONT_P, color);
-    draw_front_glyph(21, 5, FONT_S, color);
-    color = (fps_int < 20) ? 0xCC0000 : (fps_int < 40 ? 0xCCCC00 : 0x00CC00);
-    draw_front_glyph(45, 5, FONT_0 + ((fps_int / 10) % 10), color);
-    draw_front_glyph(53, 5, FONT_0 + (fps_int % 10), color);
-
-    // mouse debug, i wont need this forever but itll sit here for now, maybe use a preprocessor to disable it?
-    uint32_t mouse_color = 0x666666;
-    if (mouse_debug_last_fs != 0 && (current_fs_now - mouse_debug_last_fs) < (femtosecondsPerSecond / 4))
-        mouse_color = 0x55CCFF;
-
-    int cx = 5;
-    draw_front_text(cx, 17, "M", mouse_color);
-    cx += 8;
-    draw_front_text(cx, 17, "B:", mouse_color);
-    cx += 16;
-    cx += draw_front_unsigned(cx, 17, (uint32_t)(mouse_debug_buttons & 0x7), mouse_color);
-    cx += 8;
-    draw_front_text(cx, 17, "X:", mouse_color);
-    cx += 16;
-    cx += draw_front_signed(cx, 17, mouse_debug_dx, mouse_color);
-    cx += 8;
-    draw_front_text(cx, 17, "Y:", mouse_color);
-    cx += 16;
-    draw_front_signed(cx, 17, mouse_debug_dy, mouse_color);
-
-    uint32_t sw = fb_info_local.width;
-    uint32_t sh = fb_info_local.height;
-    uint32_t rw = (sw > 1280) ? 1280 : sw;
-    uint32_t rh = (sh > 800) ? 800 : sh;
-    uint32_t ox = (sw > rw) ? (sw - rw) / 2 : 0;
-    uint32_t oy = (sh > rh) ? (sh - rh) / 2 : 0;
+    // stretched to whatever size the window is right now
+    uint32_t rw = (uint32_t)win->width;
+    uint32_t rh = (uint32_t)win->height;
 
     static uint32_t* x_map = NULL;
     static uint32_t last_rw = 0;
@@ -342,40 +183,28 @@ void DG_DrawFrame(void)
     uint32_t y_ratio = (DOOMGENERIC_RESY << 16) / rh;
     uint32_t src_y_fp = 0;
 
-    static uint32_t* line_buf = NULL;
-    static uint32_t last_sw = 0;
-    if (sw != last_sw) {
-        if (line_buf) free(line_buf);
-        line_buf = (uint32_t*)malloc(sw * sizeof(uint32_t));
-        last_sw = sw;
-    }
-
     for (uint32_t y = 0; y < rh; y++) {
-        uint32_t* dst = &fb0[(y + oy) * fb_pitch_pixels];
+        uint32_t* dst = &win->pixels[y * (uint32_t)win->pitch];
         const pixel_t* src_row = &DG_ScreenBuffer[(src_y_fp >> 16) * DOOMGENERIC_RESX];
         src_y_fp += y_ratio;
 
-        for (uint32_t x = 0; x < rw; x++) {
-            line_buf[x + ox] = src_row[x_map[x]];
+        // same size is the usual case, no point going through the map for it
+        if (rw == DOOMGENERIC_RESX) {
+            memcpy(dst, src_row, rw * sizeof(uint32_t));
+            continue;
         }
-        
-        memcpy(dst + ox, line_buf + ox, rw * sizeof(uint32_t));
+
+        for (uint32_t x = 0; x < rw; x++) {
+            dst[x] = src_row[x_map[x]];
+        }
     }
 
-    if (fb_fd >= 0) {
-        _ioctl(fb_fd, FB_IOC_FLIP, fb0);
-    }
+    cs_window_commit(win, 0, 0, win->width, win->height);
 }
 
+// actually asleep, not spinning. on a desktop the cpu has other windows to draw
 void DG_SleepMs(uint32_t ms) {
-    uint64_t start = dg_now_fs();
-    if (!start)
-        return;
-
-    uint64_t target = start + (uint64_t)ms * femtosecondsPerMillisecond;
-    while (dg_now_fs() < target) {
-        for (volatile int i = 0; i < 500; i++);
-    }
+    poll(NULL, 0, (int)ms);
 }
 
 uint32_t DG_GetTicksMs(void) {
@@ -391,36 +220,43 @@ uint32_t DG_GetTicksMs(void) {
 }
 
 int DG_GetKey(int* pressed, unsigned char* doomKey) {
-    if (_read(0, &key_event, sizeof(key_event)) != (int)sizeof(key_event)) return 0;
-    unsigned char key = map_key(&key_event);
-    if (key == 0) return 0;
-    *pressed = (key_event.action != KEY_RELEASE);
-    *doomKey = key;
-    return 1;
+    dg_pump_events();
+
+    while (key_count > 0) {
+        keyboard_event_t key_event = key_queue[key_head];
+        key_head = (key_head + 1) % KEY_QUEUE_SIZE;
+        key_count--;
+
+        unsigned char key = map_key(&key_event);
+        if (key == 0) continue;
+        *pressed = (key_event.action != KEY_RELEASE);
+        *doomKey = key;
+        return 1;
+    }
+    return 0;
 }
 
 int DG_GetMouse(int *buttons, int *dx, int *dy) {
-    mouse_event_t mouse_event;
     int doom_buttons = 0;
 
-    if (!buttons || !dx || !dy || mouse_fd < 0)
+    if (!buttons || !dx || !dy)
         return 0;
 
-    if (_read(mouse_fd, &mouse_event, sizeof(mouse_event)) != (int)sizeof(mouse_event))
+    dg_pump_events();
+    if (!mouse_pending)
         return 0;
 
-    if (mouse_event.buttons & MOUSE_BTN_LEFT) doom_buttons |= 1;
-    if (mouse_event.buttons & MOUSE_BTN_RIGHT) doom_buttons |= 2;
-    if (mouse_event.buttons & MOUSE_BTN_MIDDLE) doom_buttons |= 4;
+    if (mouse_buttons & CS_BUTTON_LEFT) doom_buttons |= 1;
+    if (mouse_buttons & CS_BUTTON_RIGHT) doom_buttons |= 2;
+    if (mouse_buttons & CS_BUTTON_MIDDLE) doom_buttons |= 4;
 
     *buttons = doom_buttons;
-    *dx = (int)mouse_event.dx;
-    *dy = (int)mouse_event.dy;
+    *dx = mouse_dx;
+    *dy = mouse_dy;
 
-    mouse_debug_buttons = doom_buttons;
-    mouse_debug_dx = *dx;
-    mouse_debug_dy = *dy;
-    mouse_debug_last_fs = dg_now_fs();
+    mouse_dx = 0;
+    mouse_dy = 0;
+    mouse_pending = 0;
 
     return 1;
 }
