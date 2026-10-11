@@ -1,5 +1,6 @@
 #include "doomgeneric.h"
 #include "doomkeys.h"
+#include "doomstat.h"
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -22,10 +23,6 @@
 
 #define KEY_QUEUE_SIZE 64
 
-// if the pointer hasnt been heard from for this long it was off somewhere else, and
-// the jump back to wherever it came in again isnt the player turning
-#define MOUSE_STALE_FS (femtosecondsPerSecond / 4)
-
 static cs_window_t *win;
 static int hpet_fd = -2;
 
@@ -33,13 +30,11 @@ static keyboard_event_t key_queue[KEY_QUEUE_SIZE];
 static int key_head = 0;
 static int key_count = 0;
 
-static int mouse_x = 0;
-static int mouse_y = 0;
+static int mouse_locked = 0;
 static int mouse_dx = 0;
 static int mouse_dy = 0;
 static int mouse_buttons = 0;
 static int mouse_pending = 0;
-static uint64_t mouse_last_fs = 0;
 
 static uint64_t start_fs = 0;
 
@@ -119,20 +114,20 @@ static void dg_pump_events(void)
                 }
                 break;
 
-            // the desktop gives a position inside the window, the game wants how far it moved
-            case CS_EV_MOUSE: {
-                uint64_t now = dg_now_fs();
-                if (mouse_last_fs != 0 && (now - mouse_last_fs) < MOUSE_STALE_FS) {
-                    mouse_dx += ev.x - mouse_x;
-                    mouse_dy += ev.y - mouse_y;
-                }
-                mouse_x = ev.x;
-                mouse_y = ev.y;
+            // with the pointer locked the desktop sends how far the mouse moved, thats what turns
+            case CS_EV_MOUSE_RELATIVE:
+                mouse_dx += ev.x;
+                mouse_dy += ev.y;
                 mouse_buttons = (int)ev.buttons;
-                mouse_last_fs = now;
                 mouse_pending = 1;
                 break;
-            }
+
+            // without it theres only where the pointer is, which is no use for looking around.
+            // the buttons still count
+            case CS_EV_MOUSE:
+                mouse_buttons = (int)ev.buttons;
+                mouse_pending = 1;
+                break;
 
             case CS_EV_CLOSE_REQUEST:
                 cs_window_close(win);
@@ -157,11 +152,24 @@ void DG_Init(void)
     start_fs = dg_now_fs();
 }
 
+// the game has the mouse while its being played and gives it back for the menu, a pause
+// or a demo, the way a windows game does. alt tab takes it away whatever we want
+static void dg_update_mouse_lock(void)
+{
+    int want = (gamestate == GS_LEVEL && !menuactive && !paused && !demoplayback);
+    if (want == mouse_locked)
+        return;
+
+    mouse_locked = want;
+    cs_pointer_lock(win, want);
+}
+
 void DG_DrawFrame(void)
 {
     if (!win || !DG_ScreenBuffer) return;
 
     dg_pump_events();
+    dg_update_mouse_lock();
 
     // stretched to whatever size the window is right now
     uint32_t rw = (uint32_t)win->width;
