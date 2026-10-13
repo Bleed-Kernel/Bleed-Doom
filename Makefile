@@ -12,10 +12,10 @@ LIBC        := $(LIB_DIR)/blibc.a
 BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
-# the desktop, for the window library and its headers. a checkout next to this one by default
-CRIME_REPO  := https://github.com/Bleed-Kernel/Crime-Scene.git
+# the desktop. libcrime.a is prebuilt and sits in the root here, only the headers come from
+# CRIME_DIR, a checkout next to this one by default
 CRIME_DIR   ?= ../Crime-Scene
-LIBCRIME    := $(CRIME_DIR)/bin/libcrime.a
+LIBCRIME    := libcrime.a
 
 # crime goes last so nothing of its can shadow a libc header
 INCLUDES    := -Isysroot/include -Isysroot/include/bleed -I$(CRIME_DIR)/include
@@ -78,13 +78,9 @@ crime: $(LIBCRIME)
 
 $(DOOM_OBJS): | crime
 
-# built against the same blibc we use, not whatever its own makefile would go and fetch
+# never fetched or rebuilt, the prebuilt one is the only one we link
 $(LIBCRIME):
-	@echo "[CRIME] Preparing the window library"
-	@if [ ! -d "$(CRIME_DIR)" ]; then \
-		git clone $(CRIME_REPO) $(CRIME_DIR); \
-	fi
-	$(MAKE) -C $(CRIME_DIR) bin/libcrime.a BLIBC_DIR=$(abspath $(BLIBC_DIR))
+	@echo "[CRIME] $(LIBCRIME) is missing, put the prebuilt library there"; exit 1
 
 $(LIBC):
 	@echo "[BLIBC] Preparing blibc"

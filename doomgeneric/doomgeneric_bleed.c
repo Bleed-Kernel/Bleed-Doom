@@ -145,7 +145,7 @@ void DG_Init(void)
 {
     win = cs_window_open(DOOMGENERIC_RESX, DOOMGENERIC_RESY, "DOOM");
     if (!win) {
-        printf("doom: this needs the crime-scene desktop, start that and run doom from a terminal in it\n");
+        printf("CrimeScene Display Server is not running\n");
         exit(1);
     }
 
