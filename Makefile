@@ -12,13 +12,13 @@ LIBC        := $(LIB_DIR)/blibc.a
 BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
-# the desktop. libcrime.a is prebuilt and sits in the root here, only the headers come from
-# CRIME_DIR, a checkout next to this one by default
-CRIME_DIR   ?= ../Crime-Scene
+# the desktop. libcrime.a is prebuilt and sits in the root here, its headers are kept in
+# include/crime so a fresh clone builds without a crime-scene checkout
+CRIME_INC   := include
 LIBCRIME    := libcrime.a
 
 # crime goes last so nothing of its can shadow a libc header
-INCLUDES    := -Isysroot/include -Isysroot/include/bleed -I$(CRIME_DIR)/include
+INCLUDES    := -Isysroot/include -Isysroot/include/bleed -I$(CRIME_INC)
 
 CFLAGS := \
 	-std=gnu17 \
