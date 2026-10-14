@@ -12,10 +12,13 @@ LIBC        := $(LIB_DIR)/blibc.a
 BLIBC_REPO  := https://github.com/Bleed-Kernel/blibc.git
 BLIBC_DIR   := external/blibc
 
-# the desktop. libcrime.a is prebuilt and sits in the root here, its headers are kept in
-# include/crime so a fresh clone builds without a crime-scene checkout
-CRIME_INC   := include
-LIBCRIME    := libcrime.a
+
+CRIME_REPO  := https://github.com/Bleed-Kernel/Crime-Scene.git
+
+CRIME_DIR   ?= $(if $(wildcard ../Crime-Scene/Makefile),../Crime-Scene,external/crime-scene)
+CRIME_OUT   := libcrime
+CRIME_INC   := $(CRIME_OUT)/include
+LIBCRIME    := $(CRIME_OUT)/libcrime.a
 
 # crime goes last so nothing of its can shadow a libc header
 INCLUDES    := -Isysroot/include -Isysroot/include/bleed -I$(CRIME_INC)
@@ -74,13 +77,29 @@ $(OBJ_DIR)/%.o: doomgeneric/%.c
 
 blibc: $(LIBC)
 
-crime: $(LIBCRIME)
+# the sysroot has to be whole before anything compiles against it, without this a parallel
+# make on a fresh clone races the copy
+$(DOOM_OBJS): | crime $(LIBC)
 
-$(DOOM_OBJS): | crime
+$(CRT0): $(LIBC)
 
-# never fetched or rebuilt, the prebuilt one is the only one we link
-$(LIBCRIME):
-	@echo "[CRIME] $(LIBCRIME) is missing, put the prebuilt library there"; exit 1
+# a checkout handed in with CRIME_DIR is left as it is, only our own clone gets pulled.
+# cp -p keeps the headers times so a pull that changed nothing doesnt rebuild anything
+crime: | $(LIBC)
+	@echo "[CRIME] Preparing crime-scene"
+	@if [ ! -d "$(CRIME_DIR)" ]; then \
+		git clone $(CRIME_REPO) $(CRIME_DIR); \
+	elif [ "$(CRIME_DIR)" = "external/crime-scene" ]; then \
+		git -C $(CRIME_DIR) pull --ff-only || echo "[CRIME] couldnt pull, building whats there"; \
+	fi
+	@$(MAKE) -C $(CRIME_DIR) bin/libcrime.a BLIBC_DIR=$(abspath $(BLIBC_DIR))
+	@echo "[CRIME] Syncing $(CRIME_OUT)"
+	@rm -rf $(CRIME_OUT)/include
+	@mkdir -p $(CRIME_OUT)/include/crime
+	@cp -p $(CRIME_DIR)/include/crime/*.h $(CRIME_OUT)/include/crime/
+	@cmp -s $(CRIME_DIR)/bin/libcrime.a $(LIBCRIME) || cp -p $(CRIME_DIR)/bin/libcrime.a $(LIBCRIME)
+
+$(LIBCRIME): | crime ;
 
 $(LIBC):
 	@echo "[BLIBC] Preparing blibc"
@@ -98,6 +117,6 @@ clean:
 	rm -rf $(BIN_DIR)
 
 distclean:
-	rm -rf $(BIN_DIR) sysroot external
+	rm -rf $(BIN_DIR) sysroot external $(CRIME_OUT)
 
 .PHONY: all clean distclean blibc crime

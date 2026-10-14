@@ -15,7 +15,6 @@
 
 // the crime-scene window library, this port only runs as a window on the desktop
 #include <crime/crime.h>
-#include <crime/sys.h>
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
