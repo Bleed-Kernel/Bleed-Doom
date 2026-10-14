@@ -90,7 +90,7 @@ crime: | $(LIBC)
 	@if [ ! -d "$(CRIME_DIR)" ]; then \
 		git clone $(CRIME_REPO) $(CRIME_DIR); \
 	elif [ "$(CRIME_DIR)" = "external/crime-scene" ]; then \
-		git -C $(CRIME_DIR) pull --ff-only || echo "[CRIME] couldnt pull, building whats there"; \
+		cd $(CRIME_DIR) && git pull --rebase; \
 	fi
 	@$(MAKE) -C $(CRIME_DIR) bin/libcrime.a BLIBC_DIR=$(abspath $(BLIBC_DIR))
 	@echo "[CRIME] Syncing $(CRIME_OUT)"
