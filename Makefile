@@ -70,9 +70,13 @@ DOOM_OBJS := $(patsubst doomgeneric/%.c,$(OBJ_DIR)/%.o,$(DOOM_SRCS))
 all: blibc crime audio $(BIN_DIR)/$(TARGET)
 
 OBJCOPY := $(shell command -v x86_64-elf-objcopy >/dev/null 2>&1 && echo x86_64-elf-objcopy || echo objcopy)
-ICONS   := $(wildcard res/icon-16.png res/icon-32.png res/icon-48.png)
+ICONS   := $(wildcard res/icon.png res/icon-16.png res/icon-32.png res/icon-48.png)
 
 define embed_icons
+	@if [ -f res/icon.png ]; then \
+		$(OBJCOPY) --add-section .bleed.icon=res/icon.png \
+			--set-section-flags .bleed.icon=noload,readonly $(1) || exit 1; \
+	fi
 	@for px in 16 32 48; do \
 		if [ -f res/icon-$$px.png ]; then \
 			$(OBJCOPY) --add-section .bleed.icon$$px=res/icon-$$px.png \
