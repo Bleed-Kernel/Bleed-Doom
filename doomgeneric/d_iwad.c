@@ -22,6 +22,9 @@
 #include <string.h>
 
 #include "config.h"
+#ifndef ORIGCODE
+#include <syscalls.h>
+#endif
 #include "deh_str.h"
 #include "doomkeys.h"
 #include "d_iwad.h"
@@ -613,6 +616,14 @@ static void BuildIWADDirList(void)
 
 #endif
 #else
+    static char exe_dir[256];
+    char *slash;
+    if (_taskpath((uint64_t)_getpid(), exe_dir, sizeof(exe_dir)) == 0 &&
+        (slash = strrchr(exe_dir, '/')) != NULL && slash != exe_dir)
+    {
+        *slash = '\0';
+        AddIWADDir(exe_dir);
+    }
     AddIWADDir (FILES_DIR);
 
     // Don't run this function again.
